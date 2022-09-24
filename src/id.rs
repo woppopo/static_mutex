@@ -12,7 +12,7 @@ impl ID {
     }
 
     const fn eq(a: &Self, b: &Self) -> bool {
-        a.0.line == b.0.line && a.0.col == b.0.col
+        Location::eq(a.0, b.0)
     }
 }
 
