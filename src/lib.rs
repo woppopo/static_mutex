@@ -4,53 +4,79 @@
 #![feature(const_mut_refs)]
 #![feature(const_slice_from_raw_parts_mut)]
 #![feature(core_intrinsics)]
-#![feature(generic_arg_infer)]
-#![feature(generic_const_exprs)]
+#![feature(inline_const)]
 
 mod id;
 mod location;
 
 use std::{
+    marker::PhantomData,
     ops::{Deref, DerefMut},
     sync::{LockResult, Mutex, MutexGuard, PoisonError},
 };
 
-pub use id::{IDList, IDs, ID};
+pub use id::{End, Id, Locked, Unlocked};
 
-pub struct StaticMutex<T, const U: ID>(Mutex<T>);
+use crate::id::IsLocked;
 
-impl<T, const U: ID> StaticMutex<T, U> {
+pub struct Log<List>(PhantomData<List>);
+
+impl Log<End> {
+    pub const fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<List> Log<List> {
+    const fn into<NextList>(self) -> Log<NextList> {
+        Log(PhantomData)
+    }
+}
+
+pub struct StaticMutex<const ID: Id, T>(Mutex<T>);
+
+impl<const ID: Id, T> StaticMutex<ID, T> {
     pub const fn new(value: T) -> Self {
         Self(Mutex::new(value))
     }
 
-    pub fn lock<const LIST: IDList>(
+    #[track_caller]
+    pub fn lock<List>(
         &self,
-        _: IDs<LIST>,
-    ) -> LockResult<(IDs<{ IDs::<LIST>::push(LIST, U) }>, StaticMutexGuard<T, U>)> {
+        log: Log<List>,
+    ) -> LockResult<(Log<Locked<ID, List>>, StaticMutexGuard<ID, T>)>
+    where
+        List: IsLocked<ID>,
+    {
+        #[track_caller]
+        const fn assertion(is_locked: bool) {
+            if is_locked {
+                panic!("Double-lock occured.");
+            }
+        }
+
+        const { assertion(List::RESULT) };
+
         match self.0.lock() {
             Ok(guard) => {
                 let guard = StaticMutexGuard(guard);
-                Ok((IDs, guard))
+                Ok((log.into(), guard))
             }
             Err(poison) => {
                 let guard = StaticMutexGuard(poison.into_inner());
-                Err(PoisonError::new((IDs, guard)))
+                Err(PoisonError::new((log.into(), guard)))
             }
         }
     }
 
-    pub fn unlock<const LIST: IDList>(
-        _: IDs<LIST>,
-        _: StaticMutexGuard<'_, T, U>,
-    ) -> IDs<{ IDs::<LIST>::remove(LIST, U) }> {
-        IDs
+    pub fn unlock<List>(log: Log<List>, _: StaticMutexGuard<'_, ID, T>) -> Log<Unlocked<ID, List>> {
+        log.into()
     }
 }
 
-pub struct StaticMutexGuard<'a, T, const U: ID>(MutexGuard<'a, T>);
+pub struct StaticMutexGuard<'a, const ID: Id, T>(MutexGuard<'a, T>);
 
-impl<'a, T, const U: ID> Deref for StaticMutexGuard<'a, T, U> {
+impl<'a, const ID: Id, T> Deref for StaticMutexGuard<'a, ID, T> {
     type Target = MutexGuard<'a, T>;
 
     fn deref(&self) -> &Self::Target {
@@ -58,7 +84,7 @@ impl<'a, T, const U: ID> Deref for StaticMutexGuard<'a, T, U> {
     }
 }
 
-impl<'a, T, const U: ID> DerefMut for StaticMutexGuard<'a, T, U> {
+impl<'a, const ID: Id, T> DerefMut for StaticMutexGuard<'a, ID, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

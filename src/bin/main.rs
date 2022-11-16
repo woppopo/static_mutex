@@ -1,16 +1,16 @@
-use static_mutex::{IDs, StaticMutex, ID};
+use static_mutex::{Id, Log, StaticMutex};
 
 extern crate static_mutex;
 
 fn main() {
-    let ids = IDs::empty();
-    let a1 = StaticMutex::<_, { ID::new() }>::new(1);
-    let a2 = StaticMutex::<_, { ID::new() }>::new(2);
+    let log = Log::new();
+    let a1 = StaticMutex::<{ Id::new() }, _>::new(1);
+    let a2 = StaticMutex::<{ Id::new() }, _>::new(2);
 
-    let (ids, v1) = a1.lock(ids).unwrap();
-    let (ids, _v2) = a2.lock(ids).unwrap();
-    //let (ids, v1) = a1.lock(ids).unwrap(); // Double-Locks!
+    let (log, v1) = a1.lock(log).unwrap();
+    let (log, _v2) = a2.lock(log).unwrap();
+    //let (log, v1) = a1.lock(log).unwrap(); // Double-Locks!
 
-    let ids = StaticMutex::unlock(ids, v1);
-    let (_ids, _v1) = a1.lock(ids).unwrap();
+    let log = StaticMutex::unlock(log, v1);
+    let (_log, _v1) = a1.lock(log).unwrap();
 }
